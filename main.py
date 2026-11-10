@@ -6,32 +6,56 @@ import gradio as gr
 from huggingface_hub import InferenceClient
 
 
-MODEL_OPTIONS = [
-    "black-forest-labs/FLUX.1-schnell"
-]
+# ── Provider → Model mapping ──────────────────────────────────────────────
+PROVIDER_MODELS = {
+    "wavespeed": [
+        "black-forest-labs/FLUX.1-dev",
+    ],
+    "fal-ai": [
+        "black-forest-labs/FLUX.1-dev",
+        "black-forest-labs/FLUX.1-schnell",
+    ],
+    "hf-inference": [
+        "stabilityai/stable-diffusion-3-medium-diffusers",
+    ],
+}
+
+PROVIDER_OPTIONS = list(PROVIDER_MODELS.keys())
+DEFAULT_PROVIDER = PROVIDER_OPTIONS[0]
+DEFAULT_MODELS = PROVIDER_MODELS[DEFAULT_PROVIDER]
 
 STYLE_OPTIONS = [
     "Anime",
     "Pop Art",
     "Cyberpunk",
     "Watercolor",
-    "Ghibli Style Art"
+    "Ghibli Style Art",
 ]
 
 
-# Initialise Hugging Face client
+# ── Hugging Face authentication ───────────────────────────────────────────
 hf_token = os.getenv("HF_TOKEN")
 
 if not hf_token:
     raise RuntimeError("HF_TOKEN environment variable is not configured")
 
-client = InferenceClient(
-    provider="fal-ai",
-    api_key=hf_token,
-)
+
+def _get_client(provider: str) -> InferenceClient:
+    """Return an InferenceClient configured for the given provider."""
+    return InferenceClient(
+        provider=provider,
+        api_key=hf_token,
+    )
 
 
-def generate_image(prompt: str, model: str, style: str):
+def on_provider_change(provider: str):
+    """Update the model dropdown when the provider changes."""
+    models = PROVIDER_MODELS.get(provider, [])
+    return gr.update(choices=models, value=models[0] if models else None)
+
+
+def generate_image(prompt: str, provider: str, model: str, style: str):
+    """Generate an image with the selected provider, model and style."""
 
     if not prompt or not prompt.strip():
         raise gr.Error("Please enter an image prompt.")
@@ -39,6 +63,8 @@ def generate_image(prompt: str, model: str, style: str):
     final_prompt = f"{prompt.strip()}, rendered in {style} style"
 
     try:
+        client = _get_client(provider)
+
         # Generate image using Hugging Face InferenceClient
         image = client.text_to_image(
             final_prompt,
@@ -48,7 +74,7 @@ def generate_image(prompt: str, model: str, style: str):
         # Save image to temporary file for download
         temp_file = tempfile.NamedTemporaryFile(
             suffix=".png",
-            delete=False
+            delete=False,
         )
 
         image.save(temp_file.name)
@@ -60,50 +86,64 @@ def generate_image(prompt: str, model: str, style: str):
         raise gr.Error(f"Generation failed: {str(e)}")
 
 
+# ── UI ─────────────────────────────────────────────────────────────────────
 theme = gr.themes.Citrus()
 
 with gr.Blocks(
     title="Free Image Generator",
-    theme=theme
+    theme=theme,
 ) as demo:
 
     gr.Markdown("# 🎨 AI Image Generator")
 
     prompt = gr.Textbox(
         label="Prompt",
-        placeholder="Astronaut riding horse on Mars..."
+        placeholder="Astronaut riding horse on Mars...",
     )
 
     with gr.Row():
 
+        provider = gr.Dropdown(
+            PROVIDER_OPTIONS,
+            label="Provider",
+            value=DEFAULT_PROVIDER,
+        )
+
         model = gr.Dropdown(
-            MODEL_OPTIONS,
+            DEFAULT_MODELS,
             label="Model",
-            value=MODEL_OPTIONS[0]
+            value=DEFAULT_MODELS[0],
         )
 
         style = gr.Dropdown(
             STYLE_OPTIONS,
             label="Style",
-            value="Anime"
+            value="Anime",
         )
+
+    # Dynamically update models when the provider changes
+    provider.change(
+        fn=on_provider_change,
+        inputs=[provider],
+        outputs=[model],
+    )
 
     generate_btn = gr.Button("Generate")
 
     output_image = gr.Image(
         type="pil",
         height=500,
-        label="Generated Image"
+        label="Generated Image",
     )
 
     download_file = gr.File(
-        label="Download Image"
+        label="Download Image",
     )
 
     generate_btn.click(
         fn=generate_image,
-        inputs=[prompt, model, style],
-        outputs=[output_image, download_file]
+        inputs=[prompt, provider, model, style],
+        outputs=[output_image, download_file],
     )
 
 
