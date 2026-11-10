@@ -2,7 +2,6 @@
 import base64
 import io
 import os
-import random
 import tempfile
 
 import gradio as gr
