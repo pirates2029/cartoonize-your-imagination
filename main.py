@@ -12,6 +12,13 @@ from PIL import Image
 
 # ── Provider → Model mapping ──────────────────────────────────────────────
 # Cloudflare model IDs use the @cf/ prefix in the API URL.
+# FLUX 2 models require multipart/form-data input instead of JSON.
+CLOUDFLARE_MULTIPART_MODELS = {
+    "@cf/black-forest-labs/flux-2-dev",
+    "@cf/black-forest-labs/flux-2-klein-4b",
+    "@cf/black-forest-labs/flux-2-klein-9b",
+}
+
 PROVIDER_MODELS = {
     "wavespeed": [
         "black-forest-labs/FLUX.1-dev",
@@ -25,6 +32,9 @@ PROVIDER_MODELS = {
     ],
     "cloudflare": [
         "@cf/black-forest-labs/flux-1-schnell",
+        "@cf/black-forest-labs/flux-2-dev",
+        "@cf/black-forest-labs/flux-2-klein-4b",
+        "@cf/black-forest-labs/flux-2-klein-9b",
     ],
 }
 
@@ -94,7 +104,11 @@ def _get_hf_client(provider: str) -> InferenceClient:
 
 
 def _generate_cloudflare(prompt: str, model: str) -> Image.Image:
-    """Call the Cloudflare Workers AI REST API and return a PIL Image."""
+    """Call the Cloudflare Workers AI REST API and return a PIL Image.
+
+    FLUX 1 models accept a JSON payload, while FLUX 2 models require
+    multipart/form-data.
+    """
     if not cloudflare_account_id or not cloudflare_api_token:
         raise RuntimeError(
             "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN environment "
@@ -106,12 +120,24 @@ def _generate_cloudflare(prompt: str, model: str) -> Image.Image:
         f"{cloudflare_account_id}/ai/run/{model}"
     )
 
-    response = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {cloudflare_api_token}"},
-        json={"prompt": prompt},
-        timeout=120,
-    )
+    headers = {"Authorization": f"Bearer {cloudflare_api_token}"}
+
+    if model in CLOUDFLARE_MULTIPART_MODELS:
+        # FLUX 2 models require multipart/form-data
+        response = requests.post(
+            url,
+            headers=headers,
+            data={"prompt": prompt, "steps": "25"},
+            timeout=120,
+        )
+    else:
+        # FLUX 1 models use JSON
+        response = requests.post(
+            url,
+            headers=headers,
+            json={"prompt": prompt, "steps": 8},
+            timeout=120,
+        )
 
     response.raise_for_status()
 
