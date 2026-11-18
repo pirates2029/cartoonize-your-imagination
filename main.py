@@ -1,8 +1,8 @@
-
 import base64
 import io
 import os
 import tempfile
+from typing import Literal, cast
 
 import gradio as gr
 import requests
@@ -38,7 +38,41 @@ STYLE_OPTIONS = [
     "Cyberpunk",
     "Watercolor",
     "Ghibli Style Art",
+    "Realistic"
 ]
+
+ProviderName = Literal[
+    "wavespeed",
+    "fal-ai",
+    "hf-inference",
+]
+
+
+def generate_system_prompt(prompt: str, style: str = "Realistic") -> str:
+    """Build a complete image-generation prompt for the requested style."""
+    prompt = prompt.strip() if prompt else ""
+    if not prompt:
+        raise ValueError("An image prompt is required.")
+
+    style = style.strip() if style else "Realistic"
+
+    if style == "Realistic":
+        final_prompt = (
+            "Photorealistic, ultra-realistic real-world photography."
+            "Depict the scene exactly as described, preserving the user's original intent and all important details."
+            "Make it look like a genuine photograph captured with a professional DSLR or mirrorless camera."
+            "Use realistic human anatomy, natural proportions, authentic textures, physically accurate lighting, natural shadows, realistic reflections, true-to-life colours, and environmental details."
+            "Apply professional photographic composition, realistic camera perspective, natural depth of field, and accurate lens characteristics. Ensure every object and interaction follows real-world physics."
+            "High detail, crisp focus, lifelike appearance, professional photography quality."
+            "Avoid cartoon, illustration, painting, CGI, 3D-rendered appearance, artificial textures, exaggerated effects, distortions, and unnatural elements."
+            "Here is the prompt to be used for image generation: " + prompt
+        )
+    else:
+        final_prompt = (
+            f"{prompt.strip()}, rendered in {style} style."
+        )
+
+    return final_prompt
 
 
 # ── Authentication ─────────────────────────────────────────────────────────
@@ -52,8 +86,9 @@ if not hf_token:
 
 def _get_hf_client(provider: str) -> InferenceClient:
     """Return an InferenceClient configured for the given HF provider."""
+    hf_provider = cast(ProviderName, provider)
     return InferenceClient(
-        provider=provider,
+        provider=hf_provider,
         api_key=hf_token,
     )
 
@@ -119,7 +154,7 @@ def generate_image(prompt: str, provider: str, model: str, style: str):
     if not prompt or not prompt.strip():
         raise gr.Error("Please enter an image prompt.")
 
-    final_prompt = f"{prompt.strip()}, rendered in {style} style"
+    final_prompt = generate_system_prompt(prompt, style)
 
     try:
         if provider == "cloudflare":
